@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://br40gx00b02ks"
-path="res://.godot/imported/PLACEHOLDER ENEMY.png-aba554ccf724664dd094ba76444eed12.ctex"
+path="res://.godot/imported/PLACEHOLDER ENEMY.png-f8d98aead9b521bc49650a728c218098.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://PLACEHOLDER ENEMY.png"
-dest_files=["res://.godot/imported/PLACEHOLDER ENEMY.png-aba554ccf724664dd094ba76444eed12.ctex"]
+source_file="res://sceneq/PLACEHOLDER ENEMY.png"
+dest_files=["res://.godot/imported/PLACEHOLDER ENEMY.png-f8d98aead9b521bc49650a728c218098.ctex"]
 
 [params]
 

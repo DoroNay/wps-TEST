@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://ch6pbq5klv1jf" path="res://Player/player.gd" id="1_1g14n"]
 [ext_resource type="Script" uid="uid://dy5plq2okhnry" path="res://sceneq/enemy.gd" id="2_qllqm"]
-[ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://PLACEHOLDER ENEMY.png" id="3_w5te7"]
+[ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://sceneq/PLACEHOLDER ENEMY.png" id="3_w5te7"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lfkbx"]
 
