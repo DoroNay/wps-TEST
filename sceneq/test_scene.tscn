@@ -1,0 +1,102 @@
+[gd_scene format=3 uid="uid://7wjxijtsa4bx"]
+
+[ext_resource type="Script" uid="uid://ch6pbq5klv1jf" path="res://Player/player.gd" id="1_1g14n"]
+[ext_resource type="Script" uid="uid://dy5plq2okhnry" path="res://sceneq/enemy.gd" id="2_qllqm"]
+[ext_resource type="Script" uid="uid://b20odvk0v0fpq" path="res://sceneq/player_combat.gd" id="2_w5te7"]
+[ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://PLACEHOLDER ENEMY.png" id="3_w5te7"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lfkbx"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uhqqe"]
+albedo_color = Color(0.77049017, 0.7314139, 0.73481095, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_lfkbx"]
+material = SubResource("StandardMaterial3D_uhqqe")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ia1lp"]
+rim_enabled = true
+rim = 0.1
+
+[sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_lfkbx"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_aui74"]
+
+[node name="Test scene" type="Node3D" unique_id=1014219921]
+
+[node name="player" type="CharacterBody3D" parent="." unique_id=27943351 groups=["pole"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1926118, 0)
+script = ExtResource("1_1g14n")
+gravity = 25.0
+auto_hop = false
+grapple_range = 150.0
+grapple_speed = 40.0
+grapple_hop_velocity = 15.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="player" unique_id=822118644]
+shape = SubResource("CapsuleShape3D_lfkbx")
+
+[node name="Head" type="Node3D" parent="player" unique_id=1879079283]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.50700665, 0)
+
+[node name="Camera3D" type="Camera3D" parent="player/Head" unique_id=63110964]
+
+[node name="combat" type="Node3D" parent="player" unique_id=731801256]
+script = ExtResource("2_w5te7")
+
+[node name="CSGMesh3D" type="CSGMesh3D" parent="." unique_id=984637825]
+transform = Transform3D(71.21418, 0, 0, 0, 1.0717698, 0, 0, 0, 62.57833, 0, -0.55673575, 0)
+use_collision = true
+mesh = SubResource("BoxMesh_lfkbx")
+
+[node name="CSGMesh3D2" type="CSGMesh3D" parent="." unique_id=2116063396]
+transform = Transform3D(5.519352, 0, 0, 0, 0.40256253, 0, 0, 0, 5.1012697, -5.860442, 2.849638, 2.053157)
+use_collision = true
+mesh = SubResource("BoxMesh_lfkbx")
+material = SubResource("StandardMaterial3D_ia1lp")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2000097345]
+transform = Transform3D(1, 0, 0, 0, 0.627712, 0.77844566, 0, -0.77844566, 0.627712, 0, 0, 0)
+
+[node name="CSGCylinder3D" type="CSGCylinder3D" parent="." unique_id=1703782200 groups=["pole"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.017956, 2.4454908, -6.49097)
+use_collision = true
+radius = 0.165
+height = 8.293457
+sides = 6
+smooth_faces = false
+
+[node name="Node2D" type="Node2D" parent="." unique_id=252209961]
+
+[node name="Control" type="Control" parent="Node2D" unique_id=1303115659]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="Label" type="Label" parent="Node2D/Control" unique_id=638438531]
+modulate = Color(0, 0, 0, 1)
+material = SubResource("CanvasItemMaterial_lfkbx")
+layout_mode = 0
+offset_left = 14.0
+offset_top = 388.0
+offset_right = 149.0
+offset_bottom = 489.0
+scale = Vector2(1.4297994, 1.3937008)
+text = "WASD:movement
+SPACE:jump
+CTRL:dash
+E:grappling hook"
+
+[node name="enemy" type="Node3D" parent="." unique_id=1521489811]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 12.43127)
+
+[node name="enemy" type="CharacterBody3D" parent="enemy" unique_id=845843986]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.33921266, 0)
+script = ExtResource("2_qllqm")
+sprite_sheet = ExtResource("3_w5te7")
+hframes = 2
+vframes = 2
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="enemy/enemy" unique_id=834501001]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9295454, 0)
+shape = SubResource("CapsuleShape3D_aui74")
