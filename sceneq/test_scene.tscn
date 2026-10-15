@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" uid="uid://ch6pbq5klv1jf" path="res://Player/player.gd" id="1_1g14n"]
 [ext_resource type="Script" uid="uid://dy5plq2okhnry" path="res://sceneq/enemy.gd" id="2_qllqm"]
-[ext_resource type="Script" uid="uid://b20odvk0v0fpq" path="res://sceneq/player_combat.gd" id="2_w5te7"]
 [ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://PLACEHOLDER ENEMY.png" id="3_w5te7"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lfkbx"]
@@ -30,7 +29,6 @@ gravity = 25.0
 auto_hop = false
 grapple_range = 150.0
 grapple_speed = 40.0
-grapple_hop_velocity = 15.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="player" unique_id=822118644]
 shape = SubResource("CapsuleShape3D_lfkbx")
@@ -39,9 +37,6 @@ shape = SubResource("CapsuleShape3D_lfkbx")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.50700665, 0)
 
 [node name="Camera3D" type="Camera3D" parent="player/Head" unique_id=63110964]
-
-[node name="combat" type="Node3D" parent="player" unique_id=731801256]
-script = ExtResource("2_w5te7")
 
 [node name="CSGMesh3D" type="CSGMesh3D" parent="." unique_id=984637825]
 transform = Transform3D(71.21418, 0, 0, 0, 1.0717698, 0, 0, 0, 62.57833, 0, -0.55673575, 0)
@@ -77,15 +72,16 @@ offset_bottom = 40.0
 modulate = Color(0, 0, 0, 1)
 material = SubResource("CanvasItemMaterial_lfkbx")
 layout_mode = 0
-offset_left = 14.0
-offset_top = 388.0
-offset_right = 149.0
-offset_bottom = 489.0
+offset_left = 6.0
+offset_top = 7.0
+offset_right = 141.0
+offset_bottom = 134.0
 scale = Vector2(1.4297994, 1.3937008)
 text = "WASD:movement
 SPACE:jump
-CTRL:dash
-E:grappling hook"
+SHIFT:dash
+E:grappling hook
+R:restart"
 
 [node name="enemy" type="Node3D" parent="." unique_id=1521489811]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 12.43127)

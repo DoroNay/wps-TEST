@@ -8,6 +8,9 @@ extends CharacterBody3D
 ##   │  └─ Camera3D
 ##   └─ Body (Node3D)          (OPTIONAL: your character model. A placeholder is built if missing)
 ##
+## Platforms: anything with collision (e.g. CSGBox3D with Use Collision on). The hook only
+## attaches to a platform's top edge. Aim at its side or its top, tap E, and you climb on top.
+##
 ## Poles: add any node to the group "pole" (Node dock > Groups tab), with collision
 ## (e.g. CSGCylinder3D with Use Collision on). Optional: a Marker3D named "Top" under the pole
 ## chooses exactly where the character stands.
@@ -15,17 +18,20 @@ extends CharacterBody3D
 ##
 ## Controls (registered in code, only if you haven't defined them in the Input Map):
 ##   WASD move | Space jump (hold to bunny-hop) | Shift dash | E grapple (tap)
+##   Left mouse (hold) = shoot | R = go back to where you started
 ##   On a pole: look around freely | Space = hop in place and stay | WASD + Space = jump off
 ##   Esc free mouse | Click recapture
 
-enum GrappleState { NONE, TRAVEL, PERCH, POLE_HOP, HOP, RETURN }
+signal health_changed(current: float, maximum: float)  ## connect a HUD to this later
 
-const STUCK_DISTANCE := 1.5  ## if the player falls this far behind the zip path, end the zip
-const TRAVEL_EASE := 2.0  ## >1 = slow start, fast arrival
-const POLE_EASE := -2.0  ## negative = smooth in and out, so you settle onto the pole
+enum GrappleState { NONE, TRAVEL, VAULT, PERCH, POLE_HOP, HOP, RETURN }
+
+const ZIP_EASE := -2.0  ## negative = smooth in and out, so you settle at the end of the zip
 const PERCH_FOLLOW := 14.0  ## camera responsiveness while standing on a pole
 const HOP_MIN_TIME := 0.1  ## ignore "landed" right after takeoff
 const HOP_MAX_TIME := 4.0  ## safety: go back to first person even if you never land
+const LEDGE_MARCH_STEP := 0.15  ## how finely we walk along a platform top looking for its edge
+const LEDGE_MARCH_MAX := 12.0  ## how far we look for that edge
 
 @export_group("Look")
 @export var mouse_sensitivity := 0.0022
@@ -55,18 +61,31 @@ const HOP_MAX_TIME := 4.0  ## safety: go back to first person even if you never 
 @export var dash_recharge_time := 1.5
 @export var dash_exit_speed_mult := 1.3  ## x max_speed, keeps momentum after the dash
 
+@export_group("Weapon")
+@export var weapon_damage := 20.0
+@export var fire_rate := 6.0  ## shots per second (hold the button to keep firing)
+@export var weapon_range := 100.0
+@export var debug_combat := false  ## prints what each shot hits to the Output panel
+
+@export_group("Health")
+@export var max_health := 100.0
+@export var restart_on_death := true  ## placeholder: reloads the scene when you die
+
 @export_group("Grapple")
 @export var grapple_range := 70.0
 @export var grapple_speed := 45.0  ## zip speed, decides how long the trip lasts
 @export var grapple_min_time := 0.35
 @export var grapple_max_time := 1.1
-@export var grapple_hop_velocity := 9.0  ## the little jump when you arrive
-@export var grapple_exit_speed := 10.0  ## forward momentum kept when landing on top of something
+@export var grapple_ledge_reach := 4.0  ## how far above the aimed point a platform top can be
+@export var vault_time := 0.4  ## the climb up and over the edge
+@export var vault_arc_height := 1.6  ## how high the vault arcs above the edge
+@export var vault_exit_speed := 3.0  ## small push inward, so you don't stop right on the edge
 @export var grapple_return_time := 0.15  ## camera blend into first person after you touch the ground (0 = hard cut)
 @export var grapple_cooldown := 0.25
-@export var grapple_lock_look := true  ## ignore the mouse during the zip
+@export var grapple_lock_look := true  ## ignore the mouse during the zip and the vault
 @export var jump_flip := true  ## character does a somersault in the air, toward where it's moving
 @export var flip_duration := 0.55
+@export var debug_grapple := false  ## prints what the grapple decides to the Output panel
 
 @export_group("Pole")
 @export var pole_group := "pole"
@@ -92,6 +111,7 @@ const HOP_MAX_TIME := 4.0  ## safety: go back to first person even if you never 
 @onready var camera: Camera3D = $Head/Camera3D
 
 var dash_charges: int  ## read this from your HUD later
+var health := 100.0  ## read this from your HUD later
 var is_grappling: bool:  ## true during the whole grapple sequence (including the pole perch)
 	get:
 		return _grapple_state != GrappleState.NONE
@@ -103,17 +123,24 @@ var _coyote := 0.0
 var _jump_buffer := 0.0
 var _base_fov := 75.0
 
+var _fire_cd := 0.0
+var _captured_last_frame := false
+var _hit_marker: ColorRect
+var _hit_marker_time := 0.0
+var _hurt_flash: ColorRect
+var _hurt_alpha := 0.0
+
 var _grapple_state := GrappleState.NONE
-var _grapple_point := Vector3.ZERO  ## where the hook is attached
+var _grapple_point := Vector3.ZERO  ## where the hook is attached (platform edge or pole top)
 var _grapple_start := Vector3.ZERO
-var _grapple_dest := Vector3.ZERO  ## where the player's feet end up
+var _grapple_dest := Vector3.ZERO  ## where the player's feet end up after the zip
 var _grapple_arc := Vector3.ZERO  ## bezier control point (poles only)
-var _grapple_dir := Vector3.FORWARD
 var _grapple_t := 0.0
 var _grapple_travel_time := 0.5
 var _grapple_cd := 0.0
-var _arrive_on_floor := false
 var _target_is_pole := false
+var _ledge_stand := Vector3.ZERO  ## where the feet end up on top of the platform
+var _ledge_inward := Vector3.FORWARD  ## horizontal direction from the edge into the platform
 var _hop_elapsed := 0.0
 var _return_timer := 0.0
 var _return_total := 0.15
@@ -127,13 +154,20 @@ var _body: Node3D
 var _body_rest := Transform3D.IDENTITY
 var _tp_camera: Camera3D
 var _crosshair: CanvasLayer
+var _spawn_transform := Transform3D.IDENTITY  ## where R sends you back to
+var _spawn_head_pitch := 0.0
 
 
 func _ready() -> void:
+	add_to_group("player")  # enemies find you through this group
+	health = max_health
+	_spawn_transform = global_transform
+	_spawn_head_pitch = head.rotation.x
 	_setup_input()
 	_setup_rope()
 	_setup_body()
 	_setup_grapple_camera()
+	_setup_combat_ui()
 	if show_crosshair:
 		_setup_crosshair()
 	dash_charges = max_dash_charges
@@ -160,7 +194,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+func _process(delta: float) -> void:
+	# Fade the hit marker and the red "you got hurt" flash.
+	_hit_marker_time = maxf(_hit_marker_time - delta, 0.0)
+	_hit_marker.visible = _hit_marker_time > 0.0
+	_hurt_alpha = maxf(_hurt_alpha - delta * 2.5, 0.0)
+	_hurt_flash.color = Color(1.0, 0.1, 0.1, _hurt_alpha)
+
+
 func _physics_process(delta: float) -> void:
+	if Input.is_action_just_pressed("reset"):
+		_reset_to_spawn()
+		return
+
+	_update_weapon(delta)
+
 	var on_floor := is_on_floor()
 	_update_timers(delta, on_floor)
 
@@ -170,6 +218,8 @@ func _physics_process(delta: float) -> void:
 	match _grapple_state:
 		GrappleState.TRAVEL:
 			_process_grapple_travel(delta)
+		GrappleState.VAULT:
+			_process_vault(delta)
 		GrappleState.PERCH:
 			_process_pole_perch()
 		GrappleState.POLE_HOP:
@@ -188,6 +238,18 @@ func _physics_process(delta: float) -> void:
 	_update_rope()
 	_update_grapple_camera(delta)
 	_update_fov(delta)
+
+
+func _reset_to_spawn() -> void:
+	# If you're in the middle of a grapple or on a pole, end it cleanly first.
+	if _grapple_state != GrappleState.NONE:
+		_end_grapple()
+	global_transform = _spawn_transform  # back to where you started, facing the same way
+	head.rotation.x = _spawn_head_pitch
+	velocity = Vector3.ZERO
+	_dash_timer = 0.0
+	_grapple_cd = 0.0
+	dash_charges = max_dash_charges
 
 
 func _process_normal_movement(delta: float, on_floor: bool) -> void:
@@ -270,20 +332,122 @@ func _try_dash(wish_dir: Vector3) -> void:
 	_dash_timer = dash_duration
 
 
-# --- Grapple sequence: TRAVEL -> (HOP | PERCH <-> POLE_HOP, PERCH -> HOP) -> RETURN ---
+# --- Weapon and health -----------------------------------------------------------
+
+func _update_weapon(delta: float) -> void:
+	_fire_cd = maxf(_fire_cd - delta, 0.0)
+	# Don't shoot on the click that recaptures the mouse, or during the grapple cutscene.
+	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if captured and _captured_last_frame and _grapple_state == GrappleState.NONE \
+			and _fire_cd <= 0.0 and Input.is_action_pressed("fire"):
+		_shoot()
+	_captured_last_frame = captured
+
+
+func _shoot() -> void:
+	_fire_cd = 1.0 / maxf(fire_rate, 0.01)
+	var from := camera.global_transform.origin
+	var to := from - camera.global_transform.basis.z * weapon_range
+	var hit := _ray(from, to)
+
+	var end := to
+	if hit.is_empty():
+		if debug_combat:
+			print("[combat] the shot hit nothing")
+	else:
+		end = hit["position"]
+		var target := hit["collider"] as Node
+		var can_hurt := target != null and target.has_method("take_damage")
+		if debug_combat:
+			print("[combat] the shot hit ", target, " (it can take damage: ", can_hurt, ")")
+		if can_hurt:
+			target.call("take_damage", weapon_damage)
+			_hit_marker_time = 0.08
+	_spawn_tracer(camera.global_transform * Vector3(0.3, -0.25, -0.6), end)
+
+
+func take_damage(amount: float) -> void:
+	# Enemies call this when they hit you.
+	if health <= 0.0:
+		return
+	health = maxf(health - amount, 0.0)
+	_hurt_alpha = 0.45
+	health_changed.emit(health, max_health)
+	if health <= 0.0 and restart_on_death:
+		get_tree().reload_current_scene.call_deferred()
+
+
+func _spawn_tracer(from: Vector3, to: Vector3) -> void:
+	# A thin bright line that lasts a split second, so you can see your shots.
+	var offset := to - from
+	var length := offset.length()
+	if length < 0.1:
+		return
+	var box := BoxMesh.new()
+	box.size = Vector3(0.02, 0.02, 1.0)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.95, 0.6)
+	var tracer := MeshInstance3D.new()
+	tracer.mesh = box
+	tracer.material_override = mat
+	tracer.top_level = true  # lives in world space
+	add_child(tracer)
+	tracer.global_transform = Transform3D(
+		_looking_basis(offset) * Basis.from_scale(Vector3(1.0, 1.0, length)),
+		(from + to) * 0.5
+	)
+	get_tree().create_timer(0.05).timeout.connect(tracer.queue_free)
+
+
+func _setup_combat_ui() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 10
+
+	_hurt_flash = ColorRect.new()
+	_hurt_flash.color = Color(1.0, 0.1, 0.1, 0.0)
+	_hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_hurt_flash)
+
+	_hit_marker = ColorRect.new()
+	_hit_marker.color = Color.WHITE
+	_hit_marker.custom_minimum_size = Vector2(14.0, 14.0)
+	_hit_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hit_marker.visible = false
+	layer.add_child(_hit_marker)
+
+	add_child(layer)
+	_hurt_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hit_marker.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_hit_marker.pivot_offset = Vector2(7.0, 7.0)
+	_hit_marker.rotation = PI / 4.0  # a diamond
+
+
+# --- Grapple: TRAVEL -> VAULT -> RETURN (platforms), TRAVEL -> PERCH ... (poles) ----
+
+func _dbg(msg: String) -> void:
+	if debug_grapple:
+		print("[grapple] ", msg)
+
+
+func _ray(from: Vector3, to: Vector3) -> Dictionary:
+	var query := PhysicsRayQueryParameters3D.create(from, to, 0xFFFFFFFF, [get_rid()])
+	return get_world_3d().direct_space_state.intersect_ray(query)
+
 
 func _try_grapple() -> void:
 	if _grapple_cd > 0.0 or _dash_timer > 0.0:
 		return
 	var from := camera.global_transform.origin
 	var to := from - camera.global_transform.basis.z * grapple_range
-	var query := PhysicsRayQueryParameters3D.create(from, to, 0xFFFFFFFF, [get_rid()])
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit := _ray(from, to)
 	if hit.is_empty():
+		_dbg("the aim ray hit nothing within range")
 		return
 
 	var point: Vector3 = hit["position"]
 	var normal: Vector3 = hit["normal"]
+	_dbg("aim ray hit %s at %s, normal %s" % [hit["collider"], point, normal])
 	var pole := _find_pole(hit["collider"] as Node)
 	var on_pole := pole != null
 
@@ -293,20 +457,25 @@ func _try_grapple() -> void:
 		point = _get_pole_top(pole, point)
 		dest = point + Vector3.UP * 0.02
 	else:
-		dest = _compute_destination(point, normal)
+		var ledge := _find_ledge(point, normal)
+		if ledge.is_empty():
+			return  # not a platform edge, so the hook doesn't attach
+		point = ledge["edge"]
+		dest = ledge["hang"]
+		_ledge_stand = ledge["stand"]
+		_ledge_inward = ledge["inward"]
 
 	var dist := global_position.distance_to(dest)
 	if dist < 2.0:
+		_dbg("too close to the target (%.1f m)" % dist)
 		return  # too close for a cutscene
 
 	_grapple_point = point
 	_grapple_start = global_position
 	_grapple_dest = dest
-	_grapple_dir = (dest - global_position).normalized()
 	_grapple_travel_time = clampf(dist / grapple_speed, grapple_min_time, grapple_max_time)
 	_grapple_t = 0.0
 	_target_is_pole = on_pole
-	_arrive_on_floor = normal.y > 0.7 and not on_pole
 	if on_pole:
 		# Control point above the pole, so the path arrives from above instead of through it.
 		var arc := global_position.lerp(dest, 0.5)
@@ -326,13 +495,107 @@ func _try_grapple() -> void:
 	_tp_camera.make_current()
 
 
-func _compute_destination(point: Vector3, normal: Vector3) -> Vector3:
-	# Returns where the player's FEET should end up.
+func _no_ledge(reason: String) -> Dictionary:
+	_dbg("no ledge: " + reason)
+	return {}
+
+
+func _find_ledge(point: Vector3, normal: Vector3) -> Dictionary:
+	# Looks for a platform edge at what you aimed at. Returns {} if there isn't one, else:
+	#   edge   - the top edge of the platform (where the hook attaches)
+	#   hang   - where your feet go while you grab the edge
+	#   stand  - where your feet end up on top of the platform
+	#   inward - horizontal direction pointing from the edge into the platform
+	var face_point := point
+	var face_normal := normal
+
 	if normal.y > 0.7:
-		return point + normal * 0.05  # floor or ledge top: land on it
-	if normal.y < -0.7:
-		return point + normal * 1.85  # ceiling: hang just below it
-	return point + normal * 0.6 - Vector3.UP * 0.9  # wall: chest at the hit point
+		# You aimed at the TOP of something: walk along its surface toward you until it ends.
+		# (The ground never ends before it reaches you, so aiming at the ground does nothing.)
+		var to_player := Vector3(global_position.x - point.x, 0.0, global_position.z - point.z)
+		var remaining := to_player.length()
+		if remaining < 0.5:
+			return _no_ledge("aimed at a top surface right next to you")
+		var toward := to_player / remaining
+		var q := point
+		var outside := point
+		var found := false
+		var steps := int(minf(remaining, LEDGE_MARCH_MAX) / LEDGE_MARCH_STEP)
+		for i in steps:
+			var next := q + toward * LEDGE_MARCH_STEP
+			var ground := _ray(next + Vector3.UP * 0.3, next + Vector3.DOWN * 0.3)
+			if ground.is_empty() or (ground["normal"] as Vector3).y < 0.7:
+				outside = next
+				found = true
+				break
+			q = ground["position"]
+		if not found:
+			return _no_ledge("that surface doesn't end before it reaches you (ground?)")
+		# q is the last point with floor under it. Find the real side face right there.
+		face_point = q
+		face_normal = toward
+		var probe_out := outside + Vector3.DOWN * 0.3
+		var face := _ray(probe_out, probe_out - toward * 0.6)
+		if not face.is_empty() and absf((face["normal"] as Vector3).y) < 0.5:
+			face_point = face["position"]
+			face_normal = face["normal"]
+
+	# Only (nearly) vertical faces can be climbed.
+	if absf(face_normal.y) > 0.5:
+		return _no_ledge("the aimed face isn't vertical (normal %s)" % face_normal)
+	var outward := Vector3(face_normal.x, 0.0, face_normal.z).normalized()
+	var inward := -outward
+
+	# Find the top of the platform: shoot down from above, just inside the face.
+	# If the wall is taller than grapple_ledge_reach there is no top in range, so no hook.
+	var probe := face_point + inward * 0.25
+	var top := _ray(
+		Vector3(probe.x, face_point.y + grapple_ledge_reach, probe.z),
+		Vector3(probe.x, face_point.y - 0.05, probe.z)
+	)
+	if top.is_empty() or (top["normal"] as Vector3).y < 0.7:
+		return _no_ledge("no platform top found within %.1f m above the aimed point" % grapple_ledge_reach)
+	var top_pos: Vector3 = top["position"]
+	if top_pos.y < face_point.y - 0.05:
+		return _no_ledge("the top that was found is below the aimed point")
+	var edge := Vector3(face_point.x, top_pos.y, face_point.z)
+
+	# Where to stand on top: a bit in from the edge, with room for the whole body.
+	var stand := Vector3.ZERO
+	var has_stand := false
+	for inset: float in [0.7, 0.45]:
+		var candidate := edge + inward * inset + Vector3.UP * 0.02
+		if _has_ground(candidate) and _has_headroom(candidate):
+			stand = candidate
+			has_stand = true
+			break
+	if not has_stand:
+		return _no_ledge("no room to stand on top (not enough ground or headroom)")
+
+	# Where to hang while gripping the edge: against the wall, chest about at the edge.
+	var hang_xz := edge + outward * 0.5
+	var hang := hang_xz - Vector3.UP * 1.0
+	var floor_hit := _ray(hang_xz, hang_xz + Vector3.DOWN * 1.5)
+	if not floor_hit.is_empty():
+		# Low platform: don't hang below the ground in front of it.
+		hang.y = maxf(hang.y, (floor_hit["position"] as Vector3).y)
+
+	# The straight path from you to the hang spot has to be clear.
+	var blocker := _ray(global_position + Vector3.UP, hang + Vector3.UP)
+	if not blocker.is_empty():
+		return _no_ledge("the path to the hang spot is blocked by %s" % blocker["collider"])
+
+	_dbg("ledge found: edge %s, hang %s, stand %s" % [edge, hang, stand])
+	return {"edge": edge, "hang": hang, "stand": stand, "inward": inward}
+
+
+func _has_ground(pos: Vector3) -> bool:
+	var hit := _ray(pos + Vector3.UP * 0.3, pos + Vector3.DOWN * 0.3)
+	return not hit.is_empty() and (hit["normal"] as Vector3).y > 0.7
+
+
+func _has_headroom(pos: Vector3) -> bool:
+	return _ray(pos + Vector3.UP * 0.1, pos + Vector3.UP * 1.9).is_empty()
 
 
 func _find_pole(node: Node) -> Node3D:
@@ -368,32 +631,46 @@ func _get_pole_top(pole: Node3D, fallback: Vector3) -> Vector3:
 func _process_grapple_travel(delta: float) -> void:
 	_grapple_t += delta / _grapple_travel_time
 	var t := clampf(_grapple_t, 0.0, 1.0)
+	velocity = Vector3.ZERO
 
+	# Scripted motion, no collisions, so the character never snags on the pole or the ledge.
 	if _target_is_pole:
-		# Scripted arc, no collisions, so the character never clips through the pole.
-		velocity = Vector3.ZERO
-		global_position = _bezier(_grapple_start, _grapple_arc, _grapple_dest, ease(t, POLE_EASE))
-		if _grapple_t >= 1.0:
+		# Arc that arrives from above, so it never passes through the pole.
+		global_position = _bezier(_grapple_start, _grapple_arc, _grapple_dest, ease(t, ZIP_EASE))
+	else:
+		# Straight zip to the hang spot under the edge.
+		global_position = _grapple_start.lerp(_grapple_dest, ease(t, ZIP_EASE))
+
+	if _grapple_t >= 1.0:
+		if _target_is_pole:
 			_begin_perch()
-		return
-
-	var target := _grapple_start.lerp(_grapple_dest, ease(t, TRAVEL_EASE))
-	# Move toward the eased position with real collisions.
-	velocity = (target - global_position) / delta
-	move_and_slide()
-	var blocked := global_position.distance_to(target) > STUCK_DISTANCE
-	if _grapple_t >= 1.0 or blocked:
-		_begin_hop()
+		else:
+			_begin_vault()
 
 
-func _begin_hop() -> void:
-	_grapple_state = GrappleState.HOP
+func _begin_vault() -> void:
+	_grapple_state = GrappleState.VAULT
 	_hop_elapsed = 0.0
-	var forward := Vector3(_grapple_dir.x, 0.0, _grapple_dir.z).normalized()
-	var carry := forward * grapple_exit_speed if _arrive_on_floor else Vector3.ZERO
-	velocity = Vector3(carry.x, grapple_hop_velocity, carry.z)
-	# Somersault toward the direction the zip was heading.
-	_start_flip(_grapple_dir)
+	velocity = Vector3.ZERO
+	_start_flip(_ledge_inward)  # somersault over the edge, toward the platform
+
+
+func _process_vault(delta: float) -> void:
+	# Scripted climb: up and over the edge, landing on top of the platform.
+	_hop_elapsed += delta
+	var t := clampf(_hop_elapsed / maxf(vault_time, 0.05), 0.0, 1.0)
+	var control := _grapple_point + Vector3.UP * vault_arc_height + _ledge_inward * 0.1
+	global_position = _bezier(_grapple_dest, control, _ledge_stand, ease(t, ZIP_EASE))
+	velocity = Vector3.ZERO
+	if jump_flip:
+		_set_body_flip(0.0 if t >= 1.0 else TAU * ease(t, -1.6))
+	if t >= 1.0:
+		# You're on top: give control back, with a small push away from the edge.
+		_flip_t = 1.0
+		global_position = _ledge_stand
+		velocity = _ledge_inward * vault_exit_speed
+		_dbg("vault finished at %s (stand point was %s)" % [global_position, _ledge_stand])
+		_begin_return()
 
 
 func _begin_perch() -> void:
@@ -424,7 +701,6 @@ func _pole_jump() -> void:
 	# With a direction you jump off that way. With no direction (and the option above turned
 	# off) wish is zero, so you go straight up and come straight down.
 	var flip_dir := wish if wish != Vector3.ZERO else -transform.basis.z
-	_grapple_dir = flip_dir
 	velocity = wish * pole_jump_speed + Vector3.UP * pole_jump_velocity
 	_grapple_state = GrappleState.HOP
 	_hop_elapsed = 0.0
@@ -445,7 +721,7 @@ func _process_pole_hop(delta: float) -> void:
 
 
 func _process_grapple_hop(delta: float) -> void:
-	# You can steer in the air while you fall.
+	# Used when jumping off a pole. You can steer in the air while you fall.
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var wish_dir := (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
 	_apply_gravity(delta)
@@ -470,6 +746,7 @@ func _begin_return() -> void:
 
 
 func _end_grapple() -> void:
+	_dbg("sequence ended at %s, on floor: %s" % [global_position, is_on_floor()])
 	_grapple_state = GrappleState.NONE
 	_grapple_cd = grapple_cooldown
 	_flip_t = 1.0
@@ -481,7 +758,7 @@ func _end_grapple() -> void:
 
 
 func _is_look_locked() -> bool:
-	return _grapple_state == GrappleState.TRAVEL
+	return _grapple_state == GrappleState.TRAVEL or _grapple_state == GrappleState.VAULT
 
 
 # --- Flip ------------------------------------------------------------------------
@@ -553,8 +830,7 @@ func _update_grapple_camera(delta: float) -> void:
 
 func _clip_camera(from: Vector3, desired: Vector3) -> Vector3:
 	# Keeps the camera from ending up inside walls or floors.
-	var query := PhysicsRayQueryParameters3D.create(from, desired, 0xFFFFFFFF, [get_rid()])
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var hit := _ray(from, desired)
 	if hit.is_empty():
 		return desired
 	var p: Vector3 = hit["position"]
@@ -671,6 +947,8 @@ func _setup_input() -> void:
 	_add_action("jump", [KEY_SPACE])
 	_add_action("dash", [KEY_SHIFT])
 	_add_action("grapple", [KEY_E])
+	_add_action("reset", [KEY_R])
+	_add_mouse_action("fire", MOUSE_BUTTON_LEFT)
 
 
 func _add_action(action: StringName, keys: Array) -> void:
@@ -681,3 +959,12 @@ func _add_action(action: StringName, keys: Array) -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = k as Key
 		InputMap.action_add_event(action, ev)
+
+
+func _add_mouse_action(action: StringName, button: MouseButton) -> void:
+	if InputMap.has_action(action):
+		return
+	InputMap.add_action(action)
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	InputMap.action_add_event(action, ev)
