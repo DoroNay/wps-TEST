@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://dohvekobev55l"]
+
+[ext_resource type="Texture2D" uid="uid://brcblend43tm" path="res://sceneq/grappleprompt.png" id="1_qqkge"]
+
+[node name="Node3D" type="Node3D" unique_id=1198504422]
+
+[node name="Sprite3D" type="Sprite3D" parent="." unique_id=275324598]
+texture = ExtResource("1_qqkge")
+hframes = 5

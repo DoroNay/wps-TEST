@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://ch6pbq5klv1jf" path="res://Player/player.gd" id="1_1g14n"]
 [ext_resource type="Script" uid="uid://dy5plq2okhnry" path="res://sceneq/enemy.gd" id="2_qllqm"]
+[ext_resource type="Texture2D" uid="uid://brcblend43tm" path="res://sceneq/grappleprompt.png" id="2_w5te7"]
 [ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://sceneq/PLACEHOLDER ENEMY.png" id="3_w5te7"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lfkbx"]
@@ -19,16 +20,18 @@ rim = 0.1
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_lfkbx"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_aui74"]
+radius = 0.42
+height = 2.06
 
 [node name="Test scene" type="Node3D" unique_id=1014219921]
 
 [node name="player" type="CharacterBody3D" parent="." unique_id=27943351 groups=["pole"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1926118, 0)
 script = ExtResource("1_1g14n")
-gravity = 25.0
-auto_hop = false
-grapple_range = 150.0
-grapple_speed = 40.0
+debug_combat = true
+grapple_range = 30.0
+pole_zone_radius = 0.6
+prompt_sheet = ExtResource("2_w5te7")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="player" unique_id=822118644]
 shape = SubResource("CapsuleShape3D_lfkbx")
@@ -45,6 +48,12 @@ mesh = SubResource("BoxMesh_lfkbx")
 
 [node name="CSGMesh3D2" type="CSGMesh3D" parent="." unique_id=2116063396]
 transform = Transform3D(5.519352, 0, 0, 0, 0.40256253, 0, 0, 0, 5.1012697, -5.860442, 2.849638, 2.053157)
+use_collision = true
+mesh = SubResource("BoxMesh_lfkbx")
+material = SubResource("StandardMaterial3D_ia1lp")
+
+[node name="CSGMesh3D3" type="CSGMesh3D" parent="." unique_id=1084780272]
+transform = Transform3D(11.059696, 0.611067, 0, -7.906652, 0.85475045, 0, 0, 0, 5.1012697, -5.860442, 1.5146356, 10.11142)
 use_collision = true
 mesh = SubResource("BoxMesh_lfkbx")
 material = SubResource("StandardMaterial3D_ia1lp")
@@ -92,7 +101,9 @@ script = ExtResource("2_qllqm")
 sprite_sheet = ExtResource("3_w5te7")
 hframes = 2
 vframes = 2
+collision_radius = 0.2
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="enemy/enemy" unique_id=834501001]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9295454, 0)
 shape = SubResource("CapsuleShape3D_aui74")
+debug_color = Color(1.875404, 0, 0.3588085, 1)
