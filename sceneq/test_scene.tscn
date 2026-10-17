@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://dy5plq2okhnry" path="res://sceneq/enemy.gd" id="2_qllqm"]
 [ext_resource type="Texture2D" uid="uid://brcblend43tm" path="res://sceneq/grappleprompt.png" id="2_w5te7"]
 [ext_resource type="Texture2D" uid="uid://br40gx00b02ks" path="res://sceneq/PLACEHOLDER ENEMY.png" id="3_w5te7"]
+[ext_resource type="Script" uid="uid://tfldfx6mqchv" path="res://sceneq/enemy_spawner.gd" id="5_w5te7"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lfkbx"]
 
@@ -107,3 +108,9 @@ collision_radius = 0.2
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9295454, 0)
 shape = SubResource("CapsuleShape3D_aui74")
 debug_color = Color(1.875404, 0, 0.3588085, 1)
+
+[node name="enemy spawner" type="Node3D" parent="." unique_id=872437025 node_paths=PackedStringArray("enemy_template")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.82958, 0.2942314, 0)
+script = ExtResource("5_w5te7")
+enemy_scene = null
+enemy_template = NodePath("../enemy/enemy")
